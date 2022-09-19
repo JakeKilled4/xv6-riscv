@@ -169,6 +169,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->tickets = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -251,6 +252,9 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  // First process
+  p->tickets = 1;
+  
   release(&p->lock);
 }
 
@@ -295,6 +299,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // Tickets from parent 
+  np->tickets = p->tickets;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -434,6 +441,20 @@ wait(uint64 addr)
   }
 }
 
+// TODO MEJORAR IMPLEMENTACION EN OTRO FICHERO
+static uint64 next = 1;
+
+int rand(void) // RAND_MAX assumed to be 32767
+{
+    next = next * 1103515245 + 12345;
+    return (uint)(next/65536) % 32768;
+}
+
+void srand(uint seed)
+{
+    next = seed;
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -452,6 +473,41 @@ scheduler(void)
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
+    int total_tickets = 0; 
+    for(p = proc; p < &proc[NPROC]; p++) {
+
+      acquire(&p->lock);
+      if(p->state == RUNNABLE || p->state == RUNNING) {
+        total_tickets += p->tickets; 
+        //printf("%d %d\n",p->pid,p->tickets);
+      }
+      release(&p->lock);
+    }
+    //printf("total_tickets: %d\n",total_tickets);
+    /*  
+    int rand_number = rand() % total_tickets;
+ 
+    for(p = proc; p < &proc[NPROC] && rand_number > 0; p++) {
+
+      acquire(&p->lock);
+      if(p->state == RUNNABLE || p->state == RUNNING)
+        rand_number -= p->tickets;
+      
+      if(rand_number <= 0) {
+        // Switch to chosen process.  It is the process's job
+        // to release its lock and then reacquire it
+        // before jumping back to us.
+        p->state = RUNNING;
+        c->proc = p;
+        swtch(&c->context, &p->context);
+
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+      }
+      release(&p->lock);
+    }*/
+    
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
@@ -467,7 +523,7 @@ scheduler(void)
         c->proc = 0;
       }
       release(&p->lock);
-    }
+    } 
   }
 }
 
