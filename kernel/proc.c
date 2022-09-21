@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "memlayout.h"
 
 struct cpu cpus[NCPU];
 
@@ -477,37 +478,35 @@ scheduler(void)
     for(p = proc; p < &proc[NPROC]; p++) {
 
       acquire(&p->lock);
-      if(p->state == RUNNABLE || p->state == RUNNING) {
+      if(p->state == RUNNABLE) {
         total_tickets += p->tickets; 
-        //printf("%d %d\n",p->pid,p->tickets);
       }
       release(&p->lock);
     }
-    //printf("total_tickets: %d\n",total_tickets);
-    /*  
+     
     int rand_number = rand() % total_tickets;
- 
-    for(p = proc; p < &proc[NPROC] && rand_number > 0; p++) {
+    for(p = proc; p < &proc[NPROC]; p++) {
 
       acquire(&p->lock);
-      if(p->state == RUNNABLE || p->state == RUNNING)
+      if(p->state == RUNNABLE){
         rand_number -= p->tickets;
-      
-      if(rand_number <= 0) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+        if(rand_number <= 0) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+              
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+        }
       }
       release(&p->lock);
-    }*/
-    
+    }
+    /*   
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
@@ -524,6 +523,7 @@ scheduler(void)
       }
       release(&p->lock);
     } 
+    */
   }
 }
 

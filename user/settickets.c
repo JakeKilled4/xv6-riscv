@@ -6,6 +6,9 @@ int
 main(int argc, char *argv[])
 { 
   int r = settickets(10);
-  fprintf(2, "Funciona, recibido: %d",r);
+  for(int i = 0;i<1000000000;i++){
+  }
+  fprintf(2, "Funciona, recibido: %d\n",r);
+  
   exit(0);
 }
