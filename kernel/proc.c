@@ -476,21 +476,20 @@ scheduler(void)
 
     int total_tickets = 0; 
     for(p = proc; p < &proc[NPROC]; p++) {
-
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         total_tickets += p->tickets; 
       }
       release(&p->lock);
     }
-     
+
     int rand_number = rand() % total_tickets;
-    for(p = proc; p < &proc[NPROC]; p++) {
+    int exit = 0;
+    for(p = proc; p < &proc[NPROC] && !exit; p++) {
 
       acquire(&p->lock);
       if(p->state == RUNNABLE){
         rand_number -= p->tickets;
-
         if(rand_number <= 0) {
           // Switch to chosen process.  It is the process's job
           // to release its lock and then reacquire it
@@ -502,6 +501,9 @@ scheduler(void)
           // Process is done running for now.
           // It should have changed its p->state before coming back.
           c->proc = 0;
+
+          // Salimos para volver a contar los tickets
+          exit = 1;
         }
       }
       release(&p->lock);
