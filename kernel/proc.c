@@ -7,6 +7,11 @@
 #include "defs.h"
 #include "memlayout.h"
 
+
+// Global variable to counts tickets of the process
+int total_tickets = 0;
+struct spinlock tickets_lock;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -34,7 +39,7 @@ void
 proc_mapstacks(pagetable_t kpgtbl)
 {
   struct proc *p;
-  
+
   for(p = proc; p < &proc[NPROC]; p++) {
     char *pa = kalloc();
     if(pa == 0)
@@ -49,13 +54,13 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
+    initlock(&p->lock, "proc");
+    p->state = UNUSED;
+    p->kstack = KSTACK((int) (p - proc));
   }
 }
 
@@ -94,7 +99,7 @@ int
 allocpid()
 {
   int pid;
-  
+
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -169,6 +174,11 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  if(p->state == RUNNABLE || p->state == RUNNING){
+    acquire(&tickets_lock);
+    total_tickets -= p->tickets; 
+    release(&tickets_lock);
+  }
   p->state = UNUSED;
   p->tickets = 0;
 }
@@ -190,7 +200,7 @@ proc_pagetable(struct proc *p)
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X) < 0){
+        (uint64)trampoline, PTE_R | PTE_X) < 0){
     uvmfree(pagetable, 0);
     return 0;
   }
@@ -198,7 +208,7 @@ proc_pagetable(struct proc *p)
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
+        (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -238,7 +248,7 @@ userinit(void)
 
   p = allocproc();
   initproc = p;
-  
+
   // allocate one user page and copy initcode's instructions
   // and data into it.
   uvmfirst(p->pagetable, initcode, sizeof(initcode));
@@ -251,11 +261,16 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  p->state = RUNNABLE;
 
   // First process
   p->tickets = 1;
+
+  p->state = RUNNABLE;
   
+  acquire(&tickets_lock);
+  total_tickets += p->tickets; 
+  release(&tickets_lock);
+
   release(&p->lock);
 }
 
@@ -328,6 +343,9 @@ fork(void)
 
   acquire(&np->lock);
   np->state = RUNNABLE;
+  acquire(&tickets_lock);
+  total_tickets += np->tickets; 
+  release(&tickets_lock);
   release(&np->lock);
 
   return pid;
@@ -335,7 +353,7 @@ fork(void)
 
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
-void
+  void
 reparent(struct proc *p)
 {
   struct proc *pp;
@@ -380,10 +398,15 @@ exit(int status)
 
   // Parent might be sleeping in wait().
   wakeup(p->parent);
-  
+
   acquire(&p->lock);
 
   p->xstate = status;
+  if(p->state == RUNNABLE || p->state == RUNNING){
+    acquire(&tickets_lock);
+    total_tickets += p->tickets; 
+    release(&tickets_lock);
+  }
   p->state = ZOMBIE;
 
   release(&wait_lock);
@@ -395,7 +418,7 @@ exit(int status)
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
-int
+  int
 wait(uint64 addr)
 {
   struct proc *pp;
@@ -417,7 +440,7 @@ wait(uint64 addr)
           // Found one.
           pid = pp->pid;
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
-                                  sizeof(pp->xstate)) < 0) {
+                sizeof(pp->xstate)) < 0) {
             release(&pp->lock);
             release(&wait_lock);
             return -1;
@@ -436,25 +459,37 @@ wait(uint64 addr)
       release(&wait_lock);
       return -1;
     }
-    
+
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
 
-// TODO MEJORAR IMPLEMENTACION EN OTRO FICHERO
-static uint64 next = 1;
+/* The algorithm we will use here is called
+   * "Xor Shift". It produces fairly good
+   * random numbers at a very low computational
+   * cost.
+   */
+static uint32 next = 1;
+const int MAX = 1e9+7;
 
-int rand(void) // RAND_MAX assumed to be 32767
+int rand(void) 
 {
-    next = next * 1103515245 + 12345;
-    return (uint)(next/65536) % 32768;
+  
+  uint32 x = next;
+  x ^= x << 13;
+  x ^= x >> 7;
+  x ^= x << 17;
+  x %= MAX;
+  x = (x + MAX) % MAX;	// This evil bit hack allows us to work only with positive numbers!
+  return next = x;	
 }
 
 void srand(uint seed)
 {
-    next = seed;
+  next = seed;
 }
+
 
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -463,27 +498,28 @@ void srand(uint seed)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+
 void
 scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
   for(;;){
+
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    int total_tickets = 0; 
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        total_tickets += p->tickets; 
-      }
-      release(&p->lock);
-    }
+    // Seed with time
+    acquire(&tickslock);
+    srand(ticks);
+    release(&tickslock);
 
+
+    acquire(&tickets_lock);
     int rand_number = rand() % total_tickets;
+    release(&tickets_lock);
     int exit = 0;
     for(p = proc; p < &proc[NPROC] && !exit; p++) {
 
@@ -497,35 +533,35 @@ scheduler(void)
           p->state = RUNNING;
           c->proc = p;
           swtch(&c->context, &p->context);
-              
+
           // Process is done running for now.
           // It should have changed its p->state before coming back.
           c->proc = 0;
 
-          // Salimos para volver a contar los tickets
+          // Exit to count again the tickets
           exit = 1;
         }
       }
       release(&p->lock);
     }
-    /*   
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+      /*   
+           for(p = proc; p < &proc[NPROC]; p++) {
+           acquire(&p->lock);
+           if(p->state == RUNNABLE) {
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
       }
       release(&p->lock);
-    } 
-    */
+      } 
+      */
   }
 }
 
@@ -562,6 +598,11 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  if(p->state != RUNNABLE && p->state != RUNNING){
+    acquire(&tickets_lock);
+    total_tickets += p->tickets; 
+    release(&tickets_lock);
+  }
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -588,13 +629,13 @@ forkret(void)
   usertrapret();
 }
 
-// Atomically release lock and sleep on chan.
-// Reacquires lock when awakened.
+  // Atomically release lock and sleep on chan.
+  // Reacquires lock when awakened.
 void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
+
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -605,6 +646,12 @@ sleep(void *chan, struct spinlock *lk)
   acquire(&p->lock);  //DOC: sleeplock1
   release(lk);
 
+
+  if(p->state == RUNNABLE || p->state == RUNNING){
+    acquire(&tickets_lock);
+    total_tickets -= p->tickets; 
+    release(&tickets_lock);
+  }
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
@@ -619,8 +666,8 @@ sleep(void *chan, struct spinlock *lk)
   acquire(lk);
 }
 
-// Wake up all processes sleeping on chan.
-// Must be called without any p->lock.
+  // Wake up all processes sleeping on chan.
+  // Must be called without any p->lock.
 void
 wakeup(void *chan)
 {
@@ -631,11 +678,15 @@ wakeup(void *chan)
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        acquire(&tickets_lock);
+        total_tickets += p->tickets; 
+        release(&tickets_lock);
       }
       release(&p->lock);
     }
   }
 }
+
 
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
@@ -652,6 +703,9 @@ kill(int pid)
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
+        acquire(&tickets_lock);
+        total_tickets += p->tickets; 
+        release(&tickets_lock);
       }
       release(&p->lock);
       return 0;
@@ -673,22 +727,22 @@ int
 killed(struct proc *p)
 {
   int k;
-  
+
   acquire(&p->lock);
   k = p->killed;
   release(&p->lock);
   return k;
-}
+ }
 
-// Copy to either a user address, or kernel address,
-// depending on usr_dst.
-// Returns 0 on success, -1 on error.
+  // Copy to either a user address, or kernel address,
+  // depending on usr_dst.
+  // Returns 0 on success, -1 on error.
 int
 either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_dst){
-    return copyout(p->pagetable, dst, src, len);
+   return copyout(p->pagetable, dst, src, len);
   } else {
     memmove((char *)dst, src, len);
     return 0;
@@ -717,12 +771,12 @@ void
 procdump(void)
 {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [USED]      "used",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+    [UNUSED]    "unused",
+    [USED]      "used",
+    [SLEEPING]  "sleep ",
+    [RUNNABLE]  "runble",
+    [RUNNING]   "run   ",
+    [ZOMBIE]    "zombie"
   };
   struct proc *p;
   char *state;
@@ -732,8 +786,7 @@ procdump(void)
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
-      state = states[p->state];
-    else
+      state = states[p->state];    else
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
