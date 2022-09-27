@@ -108,16 +108,7 @@ sys_settickets(void)
 uint64
 sys_getpinfo(void)
 {
-    
-  struct proc* p = myproc();
-
   uint64 addr;
-  argaddr(0,&addr);
-  struct pstat pst;
-  for(int i = 0;i<NPROC;i++){
-    pst.pid[i] = i;
-  }
-  if(copyout(p->pagetable, addr, (char *)&pst, sizeof(pst)) < 0) 
-    return -1; 
-  return 0;
+  argaddr(0,&addr); 
+  return getpinfo(addr);
 }

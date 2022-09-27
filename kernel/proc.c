@@ -6,11 +6,17 @@
 #include "proc.h"
 #include "defs.h"
 #include "memlayout.h"
+#include "pstat.h"
 
 
 // Global variable to counts tickets of the process
 int total_tickets = 0;
 struct spinlock tickets_lock;
+
+/*
+// Time of the last time inside scheduler
+uint last_time = 0;
+*/
 
 struct cpu cpus[NCPU];
 
@@ -181,6 +187,7 @@ freeproc(struct proc *p)
   }
   p->state = UNUSED;
   p->tickets = 0;
+	p->time = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -353,7 +360,7 @@ fork(void)
 
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
-  void
+void
 reparent(struct proc *p)
 {
   struct proc *pp;
@@ -402,9 +409,9 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
-  if(p->state == RUNNABLE || p->state == RUNNING){
+  if(p->state == RUNNABLE || p->state == RUNNING){ // TODO revisar esta cosa
     acquire(&tickets_lock);
-    total_tickets += p->tickets; 
+    total_tickets -= p->tickets; 
     release(&tickets_lock);
   }
   p->state = ZOMBIE;
@@ -418,7 +425,7 @@ exit(int status)
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
-  int
+int
 wait(uint64 addr)
 {
   struct proc *pp;
@@ -504,25 +511,35 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
   c->proc = 0;
+
   for(;;){
 
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
-
+    
     // Seed with time
     acquire(&tickslock);
     srand(ticks);
-    release(&tickslock);
-
-
+    release(&tickslock);  
+    
+    /* 
+    volatile int tickets2 = 0;
+    volatile int procesos = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE){
+        procesos++;
+        tickets2 += p->tickets;
+      }
+      release(&p->lock);
+    }*/
+  
     acquire(&tickets_lock);
-    int rand_number = rand() % total_tickets;
+    volatile int rand_number = rand() % total_tickets;
     release(&tickets_lock);
     int exit = 0;
     for(p = proc; p < &proc[NPROC] && !exit; p++) {
-
       acquire(&p->lock);
       if(p->state == RUNNABLE){
         rand_number -= p->tickets;
@@ -532,22 +549,39 @@ scheduler(void)
           // before jumping back to us.
           p->state = RUNNING;
           c->proc = p;
-          swtch(&c->context, &p->context);
 
-          // Process is done running for now.
+					/*
+				  // Start time of the new process running
+          acquire(&tickslock);
+          last_time = ticks;
+          release(&tickslock);*/
+					p->time++;
+
+          swtch(&c->context, &p->context);
+				/*
+					// Update time executing of the process
+					uint time = 0; 
+					acquire(&tickslock);
+					time = ticks;
+					release(&tickslock);  
+
+					if(last_time == 0) last_time = time; 
+					else p->time = time - last_time;
+				*/
+					// Process is done running for now.
           // It should have changed its p->state before coming back.
           c->proc = 0;
-
+           
           // Exit to count again the tickets
           exit = 1;
-        }
+         }
       }
       release(&p->lock);
     }
       /*   
-           for(p = proc; p < &proc[NPROC]; p++) {
-           acquire(&p->lock);
-           if(p->state == RUNNABLE) {
+       for(p = proc; p < &proc[NPROC]; p++) {
+       acquire(&p->lock);
+       if(p->state == RUNNABLE) {
       // Switch to chosen process.  It is the process's job
       // to release its lock and then reacquire it
       // before jumping back to us.
@@ -598,11 +632,7 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
-  if(p->state != RUNNABLE && p->state != RUNNING){
-    acquire(&tickets_lock);
-    total_tickets += p->tickets; 
-    release(&tickets_lock);
-  }
+ 
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -728,7 +758,7 @@ killed(struct proc *p)
 {
   int k;
 
-  acquire(&p->lock);
+ acquire(&p->lock);
   k = p->killed;
   release(&p->lock);
   return k;
@@ -764,6 +794,40 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
   }
 }
 
+// Get process info and copy to user space
+int getpinfo(uint64 addr){
+  struct pstat pst; 
+  struct proc* p;
+  
+  for(int i = 0;i<NPROC;i++){
+    p = &proc[i];
+    acquire(&p->lock);
+    if(p->state == UNUSED){ 
+      pst.pid[i] = -1;
+      pst.tickets[i] = -1;
+      pst.time[i] = -1;
+    }
+    else {
+      pst.pid[i] = p->pid;    
+      pst.tickets[i] = p->tickets;    
+      pst.time[i] = p->time;    
+			int index = 0;
+			while(p->name[index] != '\0'){
+				pst.name[i][index] = p->name[index];	
+				index++;
+			}
+			pst.name[i][index] = '\0';
+		}
+    release(&p->lock); 
+  }
+
+  p = myproc();
+  
+  if(copyout(p->pagetable, addr, (char *)&pst, sizeof(pst)) < 0) 
+    return -1;
+  return 0;
+}
+
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.
@@ -788,7 +852,7 @@ procdump(void)
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];    else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    printf("%d %s %s %d %d", p->pid, state, p->name,p->tickets, p->time);
     printf("\n");
   }
 }

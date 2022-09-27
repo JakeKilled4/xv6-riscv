@@ -9,16 +9,13 @@ main(int argc, char *argv[])
   struct pstat p;
     
   getpinfo(&p);
-  for(int i = 0;i< sizeof(p.pid)/sizeof(int);i++)
-    fprintf(2,"%d ",p.pid[i]);
-  fprintf(2,"\n");
-  /*  
- 
-  int r = settickets(10);
-  for(int i = 0;i<1000000000;i++){
+  for(int i = 0;i< sizeof(p.pid)/sizeof(int);i++){
+    if(p.pid[i] != -1){
+      fprintf(2,"%d %s %d %d\n", p.pid[i], p.name[i], p.tickets[i],p.time[i]);
+    }
   }
-  fprintf(2, "Funciona, recibido: %d\n",r);
-  */
-  
+  fprintf(2,"\n");
+	fprintf(2,"%d \n",uptime());
+ 
   exit(0);
 }
