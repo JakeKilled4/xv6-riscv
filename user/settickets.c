@@ -10,7 +10,7 @@ main(int argc, char *argv[])
     
   getpinfo(&p);
   for(int i = 0;i< sizeof(p.pid)/sizeof(int);i++){
-    if(p.pid[i] != -1){
+    if(p.inuse[i] == 1){
       fprintf(2,"%d %s %d %d\n", p.pid[i], p.name[i], p.tickets[i],p.time[i]);
     }
   }

@@ -13,11 +13,6 @@
 int total_tickets = 0;
 struct spinlock tickets_lock;
 
-/*
-// Time of the last time inside scheduler
-uint last_time = 0;
-*/
-
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -187,7 +182,7 @@ freeproc(struct proc *p)
   }
   p->state = UNUSED;
   p->tickets = 0;
-	p->time = 0;
+  p->time = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -527,57 +522,50 @@ scheduler(void)
     volatile int tickets2 = 0;
     volatile int procesos = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE){
-        procesos++;
-        tickets2 += p->tickets;
-      }
-      release(&p->lock);
+    acquire(&p->lock);
+    if(p->state == RUNNABLE){
+    procesos++;
+    tickets2 += p->tickets;
+    }
+    release(&p->lock);
     }*/
-  
+
+    // Generate random number
     acquire(&tickets_lock);
-    volatile int rand_number = rand() % total_tickets;
+    int rand_number = rand() % total_tickets;
     release(&tickets_lock);
+
     int exit = 0;
     for(p = proc; p < &proc[NPROC] && !exit; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE){
         rand_number -= p->tickets;
+
+        // If this process take all the tickets
         if(rand_number <= 0) {
+
           // Switch to chosen process.  It is the process's job
           // to release its lock and then reacquire it
           // before jumping back to us.
           p->state = RUNNING;
           c->proc = p;
-
-					/*
-				  // Start time of the new process running
-          acquire(&tickslock);
-          last_time = ticks;
-          release(&tickslock);*/
-					p->time++;
+          
+          // Start time of the new process running
+          p->time++;
 
           swtch(&c->context, &p->context);
-				/*
-					// Update time executing of the process
-					uint time = 0; 
-					acquire(&tickslock);
-					time = ticks;
-					release(&tickslock);  
 
-					if(last_time == 0) last_time = time; 
-					else p->time = time - last_time;
-				*/
-					// Process is done running for now.
+          // Process is done running for now.
           // It should have changed its p->state before coming back.
           c->proc = 0;
-           
+
           // Exit to count again the tickets
           exit = 1;
-         }
+        }
       }
       release(&p->lock);
-    }
+    }	
+       // Scheduler anterior
       /*   
        for(p = proc; p < &proc[NPROC]; p++) {
        acquire(&p->lock);
@@ -802,22 +790,19 @@ int getpinfo(uint64 addr){
   for(int i = 0;i<NPROC;i++){
     p = &proc[i];
     acquire(&p->lock);
-    if(p->state == UNUSED){ 
-      pst.pid[i] = -1;
-      pst.tickets[i] = -1;
-      pst.time[i] = -1;
+
+    pst.inuse[i] = (p->state != UNUSED);
+    pst.pid[i] = p->pid;    
+    pst.tickets[i] = p->tickets;    
+    pst.time[i] = p->time; 
+
+    // Copy the name (only 19 characters)
+    int index = 0;
+    while(index < 19 && p->name[index] != '\0'){
+      pst.name[i][index] = p->name[index];	
+      index++;
     }
-    else {
-      pst.pid[i] = p->pid;    
-      pst.tickets[i] = p->tickets;    
-      pst.time[i] = p->time;    
-			int index = 0;
-			while(p->name[index] != '\0'){
-				pst.name[i][index] = p->name[index];	
-				index++;
-			}
-			pst.name[i][index] = '\0';
-		}
+    pst.name[i][index] = '\0';
     release(&p->lock); 
   }
 
@@ -850,7 +835,8 @@ procdump(void)
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
-      state = states[p->state];    else
+      state = states[p->state];    
+    else
       state = "???";
     printf("%d %s %s %d %d", p->pid, state, p->name,p->tickets, p->time);
     printf("\n");

@@ -4,10 +4,11 @@
 #include "param.h"
 
 struct pstat{
+  int inuse[NPROC];     // Proccess in use
   int tickets[NPROC];   // Number of tickets
-  int pid[NPROC];       // PID of each process (if it is -1 this entry is not in use)
+  int pid[NPROC];       // PID of each process 
   int time[NPROC];      // Time each process has accumulated
-  char name[20][NPROC];	// Holds an identificative string for each process
+  char name[NPROC][20];	// Holds an identificative string for each process
 };
 
 #endif // __PSTAT_H__
