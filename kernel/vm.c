@@ -389,6 +389,8 @@ pagefault(pagetable_t pagetable, uint64 addr, uint64 sz, uint64 stack){
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
+// Added two parameters more to check if the addres is between de beginning
+// and the end of the heap
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, uint64 stack)
 {
@@ -398,10 +400,14 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, u
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
 
+    // If there is no page with that address could be because 
+    // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
       if(pagefault(pagetable, va0, sz, stack) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
+      if(pa0 == 0)
+        return -1;
     }
 
     n = PGSIZE - (dstva - va0);
@@ -419,6 +425,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, u
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
+// Added two parameters more to check if the addres is between de beginning
+// and the end of the heap
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, uint64 stack)
 {
@@ -427,10 +435,15 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, ui
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
+
+    // If there is no page with that address could be because 
+    // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
       if(pagefault(pagetable, va0, sz, stack) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
+      if(pa0 == 0)
+        return -1;
     }
     n = PGSIZE - (srcva - va0);
     if(n > len)

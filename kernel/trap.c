@@ -67,15 +67,10 @@ usertrap(void)
     syscall();
 
   } else if(r_scause() == 13 || r_scause() == 15){
-      // Page fault 
-      
-      uint64 addr = r_stval();
-      if(pagefault(p->pagetable, addr, p->sz, p->trapframe->sp) < 0)
-        setkilled(p);
-
-      
-
-    
+  
+      // Page fault  
+      if(pagefault(p->pagetable, r_stval(), p->sz, p->trapframe->sp) < 0)
+        setkilled(p); 
   }
   else if((which_dev = devintr()) != 0){
     // ok
