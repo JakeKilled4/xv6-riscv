@@ -362,19 +362,48 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+int
+pagefault(pagetable_t pagetable, uint64 addr, uint64 sz, uint64 stack){
+  char* mem; 
+  addr = PGROUNDDOWN(addr);
+
+  // If address is greater than allocated or 
+  // if address is less than the top of user stack
+  if(addr >= sz || addr < stack)
+    return -1;
+
+  mem = kalloc();
+  if(mem == 0) 
+    return -1;
+
+  memset(mem, 0, PGSIZE);
+
+  if(mappages(pagetable, addr, PGSIZE, (uint64)mem, PTE_R|PTE_U|PTE_W) != 0){
+    kfree(mem);
+    return -1;
+  } 
+  return 0;
+
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
 int
-copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, uint64 stack)
 {
   uint64 n, va0, pa0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+
+    if(pa0 == 0){
+      if(pagefault(pagetable, va0, sz, stack) < 0)
+        return -1;
+      pa0 = walkaddr(pagetable,va0);
+    }
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -391,15 +420,18 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
 int
-copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, uint64 stack)
 {
   uint64 n, va0, pa0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
+    if(pa0 == 0){
+      if(pagefault(pagetable, va0, sz, stack) < 0)
+        return -1;
+      pa0 = walkaddr(pagetable,va0);
+    }
     n = PGSIZE - (srcva - va0);
     if(n > len)
       n = len;
@@ -454,3 +486,4 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+

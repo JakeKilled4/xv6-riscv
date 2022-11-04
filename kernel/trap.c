@@ -68,34 +68,13 @@ usertrap(void)
 
   } else if(r_scause() == 13 || r_scause() == 15){
       // Page fault 
-
-      char * mem;
+      
       uint64 addr = r_stval();
-      addr = PGROUNDDOWN(addr);
-
-      // If address is greater than allocated or 
-      // if address is less than the top of user stack
-      if(addr >= p->sz || addr < p->trapframe->sp){
+      if(pagefault(p->pagetable, addr, p->sz, p->trapframe->sp) < 0)
         setkilled(p);
-        goto end;
-      }
 
-      mem = kalloc();
-      if(mem == 0) {
-        printf("TRAP kalloc error in pgfalut\n");
-        setkilled(p);
-        goto end;
-      }
+      
 
-      memset(mem, 0, PGSIZE);
-
-      if(mappages(p->pagetable, addr, PGSIZE, (uint64)mem, PTE_R|PTE_U|PTE_W) != 0){
-        printf("TRAP mappages error in pgfalut\n");
-        kfree(mem);
-        setkilled(p);
-        goto end;
-      } 
-      //printf("Memoria reservada\n");
     
   }
   else if((which_dev = devintr()) != 0){
@@ -106,7 +85,6 @@ usertrap(void)
     setkilled(p);
   }
 
-end:
   if(killed(p))
     exit(-1);
 
