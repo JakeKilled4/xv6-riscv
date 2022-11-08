@@ -506,6 +506,7 @@ sys_pipe(void)
 
 uint64 sys_mmap(void){    
   int prot, flags, fd, offset;
+  struct file* f;
   uint64 addr;
   uint length;
   argaddr(0, &addr);
@@ -514,6 +515,12 @@ uint64 sys_mmap(void){
   argint(3, &flags);
   argint(4, &fd);
   argint(5, &offset);
+
+  // Try to get the file
+  if(argfd(0, 0, &f) < 0)
+    return -1;
+  
+  
   return 0;
 }
 

@@ -797,13 +797,8 @@ int getpinfo(uint64 addr){
     pst.tickets[i] = p->tickets;    
     pst.time[i] = p->time; 
 
-    // Copy the name (only 19 characters)
-    int index = 0;
-    while(index < 19 && p->name[index] != '\0'){
-      pst.name[i][index] = p->name[index];	
-      index++;
-    }
-    pst.name[i][index] = '\0';
+    // Copy the name (only 15 characters) 
+    safestrcpy(pst.name[i], p->name, sizeof(p->name));
     release(&p->lock); 
   }
 

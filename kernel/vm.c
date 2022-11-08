@@ -6,8 +6,6 @@
 #include "defs.h"
 #include "fs.h"
 
-
-
 /*
  * the kernel's page table.
  */

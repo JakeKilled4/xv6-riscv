@@ -8,7 +8,7 @@ struct pstat{
   int tickets[NPROC];   // Number of tickets
   int pid[NPROC];       // PID of each process 
   int time[NPROC];      // Time each process has accumulated
-  char name[NPROC][20];	// Holds an identificative string for each process
+  char name[NPROC][16];	// Holds an identificative string for each process
 };
 
 #endif // __PSTAT_H__
