@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "vma.h"
+#include "mcntl.h"
 
 /*
  * the kernel's page table.
@@ -361,13 +363,78 @@ uvmclear(pagetable_t pagetable, uint64 va)
 }
 
 int
-pagefault(pagetable_t pagetable, uint64 addr, uint64 sz, uint64 stack){
-  char* mem; 
-  addr = PGROUNDDOWN(addr);
+pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, struct vma* vma){
 
+
+  // Start of the page of the fault address
+  uint64 page_addr = PGROUNDDOWN(fault_addr);
+  char* mem; 
+
+  ///////////////
+  // Map fault // 
+  //////////////
+
+  struct vma * v; 
+
+  // Should happend
+  if(vma == 0) 
+    return -1;
+
+  // Check if there is a map for that direcction
+  for(v = vma; v < &vma[MAXMAPS] && v->in_use; v++){
+    if(fault_addr >= v->start_addr && fault_addr < v->end_addr)
+      break;            
+  }
+
+  // If there is a file mapped to that direcction
+  if(v < &vma[MAXMAPS] && v->in_use) { 
+
+    // Try to reserva a page
+    mem = kalloc();
+    if(mem == 0) 
+      return -1;
+
+    memset(mem, 0, PGSIZE);
+
+    int prot = PTE_U;
+    if(PROT_READ & v->prot) prot |= PTE_R;
+    if(PROT_WRITE & v->prot) prot |= PTE_W;
+
+    if(mappages(pagetable, page_addr, PGSIZE, (uint64)mem, prot) != 0){
+      kfree(mem);
+      return -1;
+    } 
+
+    // Map
+    struct file* f = v->f;
+
+    // Offset inside the file
+    uint offset = v->offset + page_addr - v->start_addr;
+
+    ilock(f->ip);
+    int r;
+    if((r = readi(f->ip, 1, page_addr, offset, PGSIZE)) < 0){
+      return -1;
+    }
+
+    if(r == 0 || r < fault_addr - page_addr){ 
+      return -1;
+      // TODO CASO EN EL QUE EL FICHERO ES MAS PEQUEÑO DE LO QUE SE QUIERE LEER
+      // EN TAL CASO MATAR PROCESO?
+      // ESTO DEBERIA COMPROBARSE CUANDO SE HACE MMAP?
+    }
+    iunlock(f->ip);
+
+    return 0;
+  }
+
+  ////////////////
+  // Heap fault //
+  ////////////////
+  
   // If address is greater than allocated or 
   // if address is less than the top of user stack
-  if(addr >= sz || addr < stack)
+  if(fault_addr >= sz || fault_addr < stack)
     return -1;
 
   mem = kalloc();
@@ -376,10 +443,11 @@ pagefault(pagetable_t pagetable, uint64 addr, uint64 sz, uint64 stack){
 
   memset(mem, 0, PGSIZE);
 
-  if(mappages(pagetable, addr, PGSIZE, (uint64)mem, PTE_R|PTE_U|PTE_W) != 0){
+  if(mappages(pagetable, page_addr, PGSIZE, (uint64)mem, PTE_R|PTE_U|PTE_W) != 0){
     kfree(mem);
     return -1;
   } 
+
   return 0;
 
 }
@@ -390,7 +458,7 @@ pagefault(pagetable_t pagetable, uint64 addr, uint64 sz, uint64 stack){
 // Added two parameters more to check if the addres is between de beginning
 // and the end of the heap
 int
-copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, uint64 stack)
+copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, uint64 stack, struct vma* vma)
 {
   uint64 n, va0, pa0;
 
@@ -401,7 +469,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, u
     // If there is no page with that address could be because 
     // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
-      if(pagefault(pagetable, va0, sz, stack) < 0)
+      if(pagefault(pagetable, va0, sz, stack, vma) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
       if(pa0 == 0)
@@ -426,7 +494,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, u
 // Added two parameters more to check if the addres is between de beginning
 // and the end of the heap
 int
-copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, uint64 stack)
+copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, uint64 stack,struct vma* vma)
 {
   uint64 n, va0, pa0;
 
@@ -437,7 +505,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, ui
     // If there is no page with that address could be because 
     // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
-      if(pagefault(pagetable, va0, sz, stack) < 0)
+      if(pagefault(pagetable, va0, sz, stack, vma) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
       if(pa0 == 0)

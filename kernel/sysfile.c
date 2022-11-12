@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 #include "memlayout.h"
+#include "mcntl.h"
+
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -494,8 +496,8 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
-  if(copyout(p->pagetable, fdarray, (char*)&fd0, sizeof(fd0), p->sz, p->trapframe->sp) < 0 ||
-     copyout(p->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1), p->sz, p->trapframe->sp) < 0){
+  if(copyout(p->pagetable, fdarray, (char*)&fd0, sizeof(fd0), p->sz, p->trapframe->sp, p->vma) < 0 ||
+     copyout(p->pagetable, fdarray+sizeof(fd0), (char *)&fd1, sizeof(fd1), p->sz, p->trapframe->sp, p->vma) < 0){
     p->ofile[fd0] = 0;
     p->ofile[fd1] = 0;
     fileclose(rf);
@@ -531,26 +533,31 @@ static void sort(struct vma* vma){
 }
 
 uint64 sys_mmap(void){    
-  int prot, flags, fd, offset;
-  struct file* f;
+  int prot, flags, offset;
   uint64 addr;
   uint len;
+  struct file* f;
+
   argaddr(0, &addr);
   argint(1, (int*)(&len));
   argint(2, &prot);
   argint(3, &flags);
-  argint(4, &fd);
+  if(argfd(4, 0, &f) < 0)
+    return -1;
   argint(5, &offset);
 
-  // Try to get the file
-  if(argfd(0, 0, &f) < 0)
-    return -1;
 
   struct vma* vma = myproc()->vma;
   struct vma* v;
   int current_maps = 0;
   uint64 last_end_addr = 0; 
   uint64 temp_start_addr = 0;
+
+  // Map fail if file is not readable and map is to read and if the file 
+  // is not writable and the map is shared with write permissions
+  if((!f->readable && (prot & PROT_READ)) || 
+    (!f->writable && (prot & PROT_WRITE) && (flags & MAP_SHARED))) 
+    return -1;
 
   /* TODO DELETE (TESTS)
 
@@ -571,6 +578,7 @@ uint64 sys_mmap(void){
   vma[31].end_addr = 1;
   */
 
+  // The VMA is sorted by the start address
   sort(vma);
 
   
@@ -610,6 +618,9 @@ uint64 sys_mmap(void){
   v->flags = flags;
   v->offset = offset;
 
+  // Increment references to the file
+  filedup(f);
+
   /* TODO DELETE (TESTS)
   printf("Tras ordenar\n");
   for(v = vma; v < &vma[MAXMAPS];v++){
@@ -625,9 +636,47 @@ uint64 sys_mmap(void){
 }
 
 uint64 sys_munmap(void){
-    uint64 addr;
-    uint length;
-    argaddr(0, &addr);
-    argint(1, (int*)(&length));
+  uint64 start_addr, end_addr;
+  uint length;
+  argaddr(0, &start_addr);
+  argint(1, (int*)(&length));
+
+  
+  end_addr = start_addr + length;
+
+  struct vma* vma = myproc()->vma;
+  struct vma* v;
+
+  for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
+    if(v->start_addr == start_addr){
+      if(end_addr > v->end_addr)
+        return -1;
+
+      if(end_addr == v->end_addr){
+        // TODO poner invalidas las paginas mapeadas desde 
+        // TODO quitar referencia fichero 
+        v = 0;
+
+        // VMA need to be sorted
+        sort(vma);
+      }
+      else{
+        // TODO poner invalidas las paginas mapeadas desde 
+        v->end_addr = end_addr;
+      }  
+      return 0;
+    }
+    else if(v->end_addr == end_addr){
+
+      // 
+      if(start_addr < v->start_addr)
+        return -1;
+
+      // TODO poner invalidas paginas mapeadas
+      v->start_addr = start_addr;
+    }
     return 0;
+  } 
+  // Map not found or the address for munmap is in the middle of the map
+  return -1;
 }

@@ -446,7 +446,7 @@ wait(uint64 addr)
           // Found one.
           pid = pp->pid;
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&pp->xstate,
-                sizeof(pp->xstate), p->sz, p->trapframe->sp) < 0) {
+                sizeof(pp->xstate), p->sz, p->trapframe->sp, p->vma) < 0) {
             release(&pp->lock);
             release(&wait_lock);
             return -1;
@@ -764,7 +764,7 @@ either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_dst){
-   return copyout(p->pagetable, dst, src, len, p->sz, p->trapframe->sp);
+   return copyout(p->pagetable, dst, src, len, p->sz, p->trapframe->sp, p->vma);
   } else {
     memmove((char *)dst, src, len);
     return 0;
@@ -779,7 +779,7 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
   struct proc *p = myproc();
   if(user_src){
-    return copyin(p->pagetable, dst, src, len, p->sz, p->trapframe->sp);
+    return copyin(p->pagetable, dst, src, len, p->sz, p->trapframe->sp, p->vma);
   } else {
     memmove(dst, (char*)src, len);
     return 0;
@@ -807,7 +807,7 @@ int getpinfo(uint64 addr){
 
   p = myproc();
   
-  if(copyout(p->pagetable, addr, (char *)&pst, sizeof(pst),p->sz, p->trapframe->sp) < 0) 
+  if(copyout(p->pagetable, addr, (char *)&pst, sizeof(pst),p->sz, p->trapframe->sp, p->vma) < 0) 
     return -1;
   return 0;
 }
