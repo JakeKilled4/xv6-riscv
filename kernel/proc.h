@@ -1,3 +1,9 @@
+
+#ifndef __PROC_H__
+#define __PROC_H__
+
+#include"vma.h"
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -92,7 +98,8 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
   int tickets;                 // Number of tickets for scheduler
-  uint time;                    // Execution time
+  uint time;                   // Execution time
+  struct vma vma[MAXMAPS];     // VMA of the process
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
@@ -107,3 +114,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+#endif

@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -504,13 +505,38 @@ sys_pipe(void)
   return 0;
 }
 
+// Bubble sort
+static void sort(struct vma* vma){
+  int N = MAXMAPS;
+  for(int i = 0;i < N;i++){
+
+    int min_index = -1;
+    uint64 min_addr = 0xffffffffffffffff;
+
+    // Get the minimum
+    for(int j = i+1; j < N;j++){
+      if(vma[j].in_use == 1 && vma[j].start_addr < min_addr){
+        min_addr = vma[j].start_addr;
+        min_index = j; 
+      }
+    }
+
+    // If there is a minimun and vma[i] it is not in use or the start addr is greater swap
+    if(min_index != -1 && (vma[i].in_use == 0 || vma[i].start_addr > min_addr)){
+      struct vma aux = vma[i];
+      vma[i] = vma[min_index];
+      vma[min_index] = aux;
+    }
+  }
+}
+
 uint64 sys_mmap(void){    
   int prot, flags, fd, offset;
   struct file* f;
   uint64 addr;
-  uint length;
+  uint len;
   argaddr(0, &addr);
-  argint(1, (int*)(&length));
+  argint(1, (int*)(&len));
   argint(2, &prot);
   argint(3, &flags);
   argint(4, &fd);
@@ -519,9 +545,83 @@ uint64 sys_mmap(void){
   // Try to get the file
   if(argfd(0, 0, &f) < 0)
     return -1;
+
+  struct vma* vma = myproc()->vma;
+  struct vma* v;
+  int current_maps = 0;
+  uint64 last_end_addr = 0; 
+  uint64 temp_start_addr = 0;
+
+  /* TODO DELETE (TESTS)
+
+  vma[10].start_addr = 4;
+  vma[10].in_use = 1;
+  vma[10].end_addr = 4;
+
+  vma[13].start_addr = 3;
+  vma[13].in_use = 1;
+  vma[13].end_addr = 3;
+
+  vma[16].start_addr = 2;
+  vma[16].in_use = 1;
+  vma[16].end_addr = 2;
+
+  vma[31].start_addr = 1;
+  vma[31].in_use = 1;
+  vma[31].end_addr = 1;
+  */
+
+  sort(vma);
+
   
+  for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
+    current_maps++;
+
+    // If it is not the first
+    if(last_end_addr != 0){
+
+      // If we find a place
+      if(v->start_addr - last_end_addr >= len) temp_start_addr = last_end_addr;
+      
+    }
+    last_end_addr = PGROUNDUP(v->end_addr);
+  }
+  if(current_maps == MAXMAPS) return -1;
+
+  // v now point to the first free place
+
+  if(temp_start_addr != 0) {          // There is a place available
+    v->start_addr = temp_start_addr;
+  } 
+  else{                             // There is no place available
+
+    // If there is at least one map
+    if(vma->in_use)                 
+      v->start_addr = PGROUNDDOWN(vma->start_addr - len);
+    else
+      v->start_addr = PGROUNDDOWN(TRAPFRAME - len); 
+  }
   
-  return 0;
+  // Complete all the parameters
+  v->in_use = 1;
+  v->end_addr = v->start_addr + len;
+  v->f = f;
+  v->prot = prot;
+  v->flags = flags;
+  v->offset = offset;
+
+  /* TODO DELETE (TESTS)
+  printf("Tras ordenar\n");
+  for(v = vma; v < &vma[MAXMAPS];v++){
+    printf("%d %d %d\n",v->start_addr,v->end_addr, v->in_use);
+  }
+  
+  printf("start_addr = %p\n",v->start_addr);
+  printf("end_addr = %p\n",v->end_addr);
+  printf("TRAPFRAME = %p\n",TRAPFRAME);
+  */
+  
+  return v->start_addr;
 }
 
 uint64 sys_munmap(void){

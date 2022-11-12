@@ -68,6 +68,9 @@ usertrap(void)
 
   } else if(r_scause() == 13 || r_scause() == 15){
   
+      // TODO Tratar los fallos de pagina de los vma
+      //printf("TRAP EN DIR: %p\n",r_stval());
+
       // Page fault  
       if(pagefault(p->pagetable, r_stval(), p->sz, p->trapframe->sp) < 0)
         setkilled(p); 

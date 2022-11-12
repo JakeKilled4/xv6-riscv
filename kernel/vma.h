@@ -5,9 +5,9 @@
 #include "file.h"
 
 struct vma{
-  uint8 used;             // 0 if not used 1 if is in use
+  uint8 in_use;           // 0 if not used 1 if is in use
   uint64 start_addr;      // Start of memory map
-  uint len;                // Length to map
+  uint64 end_addr;        // End of memory map
   uint8 prot;             // Flags for read and write
   uint8 flags;            // Flags for private and share 
   int offset;             // Offset inside the file
