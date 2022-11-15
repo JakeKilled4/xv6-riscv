@@ -187,6 +187,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
   p->tickets = 0;
   p->time = 0;
+   
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -391,6 +392,10 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+  
+  // unmap all maped files
+  while(p->vma->in_use != 0)
+    munmap(p->vma,p->pagetable,p->vma->start_addr, p->vma->end_addr - p->vma->start_addr);   
 
   begin_op();
   iput(p->cwd);
@@ -408,7 +413,7 @@ exit(int status)
   acquire(&p->lock);
 
   p->xstate = status;
-  if(p->state == RUNNABLE || p->state == RUNNING){ // TODO revisar esta cosa
+  if(p->state == RUNNABLE || p->state == RUNNING){ 
     acquire(&tickets_lock);
     total_tickets -= p->tickets; 
     release(&tickets_lock);
