@@ -15,7 +15,6 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
-#include "memlayout.h"
 #include "mcntl.h"
 
 
@@ -507,176 +506,36 @@ sys_pipe(void)
   return 0;
 }
 
-// Bubble sort
-static void sort(struct vma* vma){
-  int N = MAXMAPS;
-  for(int i = 0;i < N;i++){
-
-    int min_index = -1;
-    uint64 min_addr = 0xffffffffffffffff;
-
-    // Get the minimum
-    for(int j = i+1; j < N;j++){
-      if(vma[j].in_use == 1 && vma[j].start_addr < min_addr){
-        min_addr = vma[j].start_addr;
-        min_index = j; 
-      }
-    }
-
-    // If there is a minimun and vma[i] it is not in use or the start addr is greater swap
-    if(min_index != -1 && (vma[i].in_use == 0 || vma[i].start_addr > min_addr)){
-      struct vma aux = vma[i];
-      vma[i] = vma[min_index];
-      vma[min_index] = aux;
-    }
-  }
-}
 
 uint64 sys_mmap(void){    
   int prot, flags, offset;
   uint64 addr;
   uint len;
   struct file* f;
+  struct vma* v;
 
   argaddr(0, &addr);
   argint(1, (int*)(&len));
   argint(2, &prot);
   argint(3, &flags);
-  if(argfd(4, 0, &f) < 0)
-    return -1;
+  if(argfd(4, 0, &f) < 0) return -1;
   argint(5, &offset);
-
-
-  struct vma* vma = myproc()->vma;
-  struct vma* v;
-  int current_maps = 0;
-  uint64 last_end_addr = 0; 
-  uint64 temp_start_addr = 0;
-
-  // Map fail if file is not readable and map is to read and if the file 
-  // is not writable and the map is shared with write permissions
-  if((!f->readable && (prot & PROT_READ)) || 
-    (!f->writable && (prot & PROT_WRITE) && (flags & MAP_SHARED))) 
+  
+  if((v = mmap(myproc()->vma, f, len, prot, flags, offset)) == 0)
     return -1;
 
-  /* TODO DELETE (TESTS)
-
-  vma[10].start_addr = 4;
-  vma[10].in_use = 1;
-  vma[10].end_addr = 4;
-
-  vma[13].start_addr = 3;
-  vma[13].in_use = 1;
-  vma[13].end_addr = 3;
-
-  vma[16].start_addr = 2;
-  vma[16].in_use = 1;
-  vma[16].end_addr = 2;
-
-  vma[31].start_addr = 1;
-  vma[31].in_use = 1;
-  vma[31].end_addr = 1;
-  */
-
-  // The VMA is sorted by the start address
-  sort(vma);
-
-  
-  for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
-    current_maps++;
-
-    // If it is not the first
-    if(last_end_addr != 0){
-
-      // If we find a place
-      if(v->start_addr - last_end_addr >= len) temp_start_addr = last_end_addr;
-      
-    }
-    last_end_addr = PGROUNDUP(v->end_addr);
-  }
-  if(current_maps == MAXMAPS) return -1;
-
-  // v now point to the first free place
-
-  if(temp_start_addr != 0) {          // There is a place available
-    v->start_addr = temp_start_addr;
-  } 
-  else{                             // There is no place available
-
-    // If there is at least one map
-    if(vma->in_use)                 
-      v->start_addr = PGROUNDDOWN(vma->start_addr - len);
-    else
-      v->start_addr = PGROUNDDOWN(TRAPFRAME - len); 
-  }
-  
-  // Complete all the parameters
-  v->in_use = 1;
-  v->end_addr = v->start_addr + len;
-  v->f = f;
-  v->prot = prot;
-  v->flags = flags;
-  v->offset = offset;
-
-  // Increment references to the file
-  filedup(f);
-
-  /* TODO DELETE (TESTS)
-  printf("Tras ordenar\n");
-  for(v = vma; v < &vma[MAXMAPS];v++){
-    printf("%d %d %d\n",v->start_addr,v->end_addr, v->in_use);
-  }
-  
-  printf("start_addr = %p\n",v->start_addr);
-  printf("end_addr = %p\n",v->end_addr);
-  printf("TRAPFRAME = %p\n",TRAPFRAME);
-  */
-  
   return v->start_addr;
 }
 
-uint64 sys_munmap(void){
-  uint64 start_addr, end_addr;
-  uint length;
+uint64 sys_munmap(void){ 
+    
+  uint64 start_addr;
+  uint len;
   argaddr(0, &start_addr);
-  argint(1, (int*)(&length));
+  argint(1, (int*)(&len));
 
-  
-  end_addr = start_addr + length;
+  struct proc * p = myproc();
+  return munmap(p->vma,p->pagetable,start_addr,len);
 
-  struct vma* vma = myproc()->vma;
-  struct vma* v;
-
-  for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
-    if(v->start_addr == start_addr){
-      if(end_addr > v->end_addr)
-        return -1;
-
-      if(end_addr == v->end_addr){
-        // TODO poner invalidas las paginas mapeadas desde 
-        // TODO quitar referencia fichero 
-        v = 0;
-
-        // VMA need to be sorted
-        sort(vma);
-      }
-      else{
-        // TODO poner invalidas las paginas mapeadas desde 
-        v->end_addr = end_addr;
-      }  
-      return 0;
-    }
-    else if(v->end_addr == end_addr){
-
-      // 
-      if(start_addr < v->start_addr)
-        return -1;
-
-      // TODO poner invalidas paginas mapeadas
-      v->start_addr = start_addr;
-    }
-    return 0;
-  } 
-  // Map not found or the address for munmap is in the middle of the map
-  return -1;
+   return 0;
 }

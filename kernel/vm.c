@@ -167,7 +167,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 }
 
 // Remove npages of mappings starting from va. va must be
-// page-aligned. The mappings must exist.
+// page-aligned.
 // Optionally free the physical memory.
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
@@ -368,26 +368,22 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
 
   // Start of the page of the fault address
   uint64 page_addr = PGROUNDDOWN(fault_addr);
-  char* mem; 
+  struct vma * v;
+  char* mem;
 
   ///////////////
   // Map fault // 
   //////////////
 
-  struct vma * v; 
-
-  // Should happend
-  if(vma == 0) 
-    return -1;
-
-  // Check if there is a map for that direcction
-  for(v = vma; v < &vma[MAXMAPS] && v->in_use; v++){
-    if(fault_addr >= v->start_addr && fault_addr < v->end_addr)
-      break;            
-  }
-
   // If there is a file mapped to that direcction
-  if(v < &vma[MAXMAPS] && v->in_use) { 
+  if((v = find_map(vma, fault_addr)) != 0){
+
+    // offset of the start of the page inside the file
+    uint offset = v->offset + page_addr - v->start_addr;
+
+    // If the complete page is empty
+    if(offset > v->size)
+      return -1;
 
     // Try to reserva a page
     mem = kalloc();
@@ -404,27 +400,23 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
       kfree(mem);
       return -1;
     } 
+    
 
     // Map
     struct file* f = v->f;
 
     // Offset inside the file
-    uint offset = v->offset + page_addr - v->start_addr;
+    uint size = PGSIZE;
+    if(offset + size > v->size)
+      size = v->size - offset;
 
     ilock(f->ip);
-    int r;
-    if((r = readi(f->ip, 1, page_addr, offset, PGSIZE)) < 0){
-      return -1;
-    }
-
-    if(r == 0 || r < fault_addr - page_addr){ 
-      return -1;
-      // TODO CASO EN EL QUE EL FICHERO ES MAS PEQUEÑO DE LO QUE SE QUIERE LEER
-      // EN TAL CASO MATAR PROCESO?
-      // ESTO DEBERIA COMPROBARSE CUANDO SE HACE MMAP?
-    }
+    int r = readi(f->ip, 1, page_addr, offset, size); 
     iunlock(f->ip);
 
+    if(r <= 0) 
+      return -1;
+    
     return 0;
   }
 
@@ -567,4 +559,69 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 
+// Free all the pages in the given range and if f != 0
+// then store all the (modified) pages in the file 
+void
+free_pages(pagetable_t pagetable, uint64 start_addr, uint len, struct file * f, uint offset, uint file_size)
+{
+  uint64 a;
+  pte_t *pte;  
+ 
+  if(start_addr % PGSIZE != 0 || len % PGSIZE != 0)
+    panic("free_pages: not aligned");
+
+  // len is a multiple of PGSIZE
+  uint64 end_page = start_addr + len;
+
+  for(a = start_addr; a < end_page; a += PGSIZE){
+    // Continue because lazy allocation
+    if((pte = walk(pagetable, a, 0)) == 0 || (*pte & PTE_V) == 0) 
+      continue;
+      
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("free_pages: not a leaf");
+
+    // If we need to store the page because
+    // we have modified it and it a shared map
+    uint64 pa = PTE2PA(*pte);
+  
+
+      
+    // Check the dirty bit
+    if(f != 0 && *pte & PTE_D){ 
+      uint size = PGSIZE;
+      uint off = offset + a - start_addr;
+
+      // If the file len is not page aligned
+      if(off + size  > file_size)
+        size = file_size - off;
+
+      // Try to write to the file
+      int max = ((MAXOPBLOCKS-1-1-2) / 2) * BSIZE;
+      int i = 0, r = 0;
+      while(i < size){
+        int n1 = size - i;
+        if(n1 > max)
+          n1 = max;
+
+        begin_op();
+        ilock(f->ip);
+        if ((r = writei(f->ip, 0, pa + i, off, n1)) > 0)
+          off += r;
+        iunlock(f->ip);
+        end_op();
+
+        // error from writei
+        if(r != n1){
+          break;
+        }
+        i += r;
+      }
+    }
+    // Free the page
+    kfree((void*)pa);
+    *pte = 0;
+
+  }
+}
 

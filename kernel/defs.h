@@ -179,6 +179,7 @@ int             copyout(pagetable_t, uint64, char *, uint64, uint64, uint64, str
 int             copyin(pagetable_t, char *, uint64, uint64, uint64, uint64, struct vma*);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             pagefault(pagetable_t, uint64, uint64, uint64, struct vma*);
+void             free_pages(pagetable_t, uint64 , uint, struct file *, uint, uint);
 
 // plic.c
 void            plicinit(void);
@@ -191,6 +192,10 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
+// vma.c
+struct vma*     mmap(struct vma*, struct file*, uint , int , int, int );
+struct vma*     find_map(struct vma*, uint64);
+int             munmap(struct vma*, pagetable_t, uint64, uint);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
