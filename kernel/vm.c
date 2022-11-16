@@ -318,7 +318,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 start, uint64 end)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = start; i < end; i += PGSIZE){
 
@@ -332,16 +331,30 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 start, uint64 end)
       continue;
       //panic("uvmcopy: page not present");
   
-    pa = PTE2PA(*pte);
+    pa = PTE2PA(*pte);  
     flags = PTE_FLAGS(*pte);
+
+    // Add a reference to the page
+    addref(pa, (flags & PTE_W) > 0);
+
+    // Delete the write permission
+    *pte &= (~PTE_W);
+
+    flags = PTE_FLAGS(*pte);
+
+    /*  
     if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    memmove(mem, (char*)pa, PGSIZE);*/ // old code
+
+     
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
   }
+
+  // Flash TLB because we had change permissions
+  sfence_vma();
   return 0;
 
  err:
@@ -370,7 +383,56 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
   uint64 page_addr = PGROUNDDOWN(fault_addr);
   struct vma * v;
   char* mem;
+  pte_t * pte;
+  
+  // We can't access this part of the memory
+  if(page_addr >= MAXVA) 
+    return -1;
 
+  // Try to get the physical address
+  pte = walk(pagetable, page_addr, 0);
+
+  ////////////////////////
+  // Copy on write case //
+  ////////////////////////
+  
+  // This means is not writable or redable
+  // So this is because we need to make a copy
+  // of the page because is shared for two process
+  // and one want to write
+  if(pte != 0 && (PTE_FLAGS(*pte) & PTE_V)){
+    uint64 pa = PTE2PA(*pte);  
+    uint flags = PTE_FLAGS(*pte);
+
+    // If is write type and the original page is writable
+    if(type == 15 && is_writtable(pa)){
+
+      // If is the last page give write permission
+      if(getrefs(pa) == 1) *pte |= PTE_W;
+      else{
+        delref(pa);
+        char *mem = kalloc();
+
+        if(mem == 0) 
+          return -1;
+
+        memmove(mem, (char*)pa,PGSIZE);
+
+        *pte = 0; 
+
+        if(mappages(pagetable, page_addr, PGSIZE, (uint64)mem, flags | PTE_W) != 0){
+          kfree(mem);
+          return -1;
+        }
+      }
+      sfence_vma();
+      return 0;
+    }
+    // This means the original page
+    // wasm't redable or writable
+    return -1;
+  }
+   
   ///////////////
   // Map fault // 
   //////////////
@@ -438,8 +500,10 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
     return -1;
 
   mem = kalloc();
-  if(mem == 0) 
+
+  if(mem == 0)
     return -1;
+  
 
   memset(mem, 0, PGSIZE);
 
