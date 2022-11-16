@@ -313,14 +313,14 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 start, uint64 end)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
   char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
+  for(i = start; i < end; i += PGSIZE){
 
     // Continue because lazy allocation
     if((pte = walk(old, i, 0)) == 0)
@@ -363,7 +363,7 @@ uvmclear(pagetable_t pagetable, uint64 va)
 }
 
 int
-pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, struct vma* vma){
+pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, struct vma* vma, int type){
 
 
   // Start of the page of the fault address
@@ -377,6 +377,14 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
 
   // If there is a file mapped to that direcction
   if((v = find_map(vma, fault_addr)) != 0){
+    
+    // Check the type of access (if we have
+    // write access then we have read access)
+    if(!(v->prot & PROT_READ) && type == 13)
+      return -1;
+
+    if(!(v->prot & PROT_WRITE) && type == 15)
+      return -1;
 
     // offset of the start of the page inside the file
     uint offset = v->offset + page_addr - v->start_addr;
@@ -394,8 +402,8 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
 
     int prot = PTE_U;
     if(PROT_READ & v->prot) prot |= PTE_R;
-    if(PROT_WRITE & v->prot) prot |= PTE_W;
-
+    if(PROT_WRITE & v->prot) prot |= PTE_W | PTE_R;
+       
     if(mappages(pagetable, page_addr, PGSIZE, (uint64)mem, prot) != 0){
       kfree(mem);
       return -1;
@@ -411,7 +419,7 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
       size = v->size - offset;
 
     ilock(f->ip);
-    int r = readi(f->ip, 1, page_addr, offset, size); 
+    int r = readi(f->ip, 0, (uint64)mem, offset, size); 
     iunlock(f->ip);
 
     if(r <= 0) 
@@ -461,7 +469,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len, uint64 sz, u
     // If there is no page with that address could be because 
     // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
-      if(pagefault(pagetable, va0, sz, stack, vma) < 0)
+      if(pagefault(pagetable, va0, sz, stack, vma, 15) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
       if(pa0 == 0)
@@ -497,7 +505,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len, uint64 sz, ui
     // If there is no page with that address could be because 
     // lazy allocation, so try to alloc first and try again
     if(pa0 == 0){
-      if(pagefault(pagetable, va0, sz, stack, vma) < 0)
+      if(pagefault(pagetable, va0, sz, stack, vma,13) < 0)
         return -1;
       pa0 = walkaddr(pagetable,va0);
       if(pa0 == 0)

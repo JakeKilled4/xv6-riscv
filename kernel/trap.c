@@ -66,10 +66,11 @@ usertrap(void)
 
     syscall();
 
-  } else if(r_scause() == 13 || r_scause() == 15){
+  } else if(r_scause() == 13 || r_scause() == 15){ 
 
+    // 13 is read cause, 15 is store cause
     // Page fault  
-    if(pagefault(p->pagetable, r_stval(), p->sz, p->trapframe->sp, p->vma) < 0)
+    if(pagefault(p->pagetable, r_stval(), p->sz, p->trapframe->sp, p->vma, r_scause()) < 0)
       setkilled(p); 
 
   }

@@ -65,10 +65,14 @@ struct vma* mmap(struct vma* vma, struct file *f, uint len, int prot, int flags,
   v->start_addr = temp_start_addr;
   v->end_addr = v->start_addr + len;
   v->f = f;  
-  v->prot = prot;
   v->flags = flags;
   v->offset = offset;
   v->size = f->ip->size;
+
+  // In riscv if you have write access you nedd
+  // read access
+  if(prot & PROT_WRITE) prot |= PROT_READ;
+  v->prot = prot;
 
   /*  
   //TODO DELETE (FOR TESTING)
@@ -106,12 +110,12 @@ int munmap(struct vma* vma, pagetable_t pagetable, uint64 start_addr, uint len){
   uint64 end_addr;
   struct vma* v;
 
-  printf("\n\nDesmapeando, len = %d\n",len);
+  //printf("\n\nDesmapeando, len = %d\n",len);
 
   // Must be page aligned
   if(start_addr % PGSIZE != 0) return -1; 
   
-  printf("start_addr alineado\n");
+  //printf("start_addr alineado\n");
 
   // Specified in munmap documentation 
   if(len == 0) return -1;
@@ -122,11 +126,11 @@ int munmap(struct vma* vma, pagetable_t pagetable, uint64 start_addr, uint len){
 
   for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
 
-    printf("v->start_addr = %p\n",v->start_addr);
-    printf("v->end_addr   = %p\n",v->end_addr);
-    printf("v->end_addr - v->start_addr  = %d\n",v->end_addr - v->start_addr);
-    printf("start_addr = %p\n",start_addr);
-    printf("end_addr = %p\n",end_addr);
+   // printf("v->start_addr = %p\n",v->start_addr);
+   // printf("v->end_addr   = %p\n",v->end_addr);
+   // printf("v->end_addr - v->start_addr  = %d\n",v->end_addr - v->start_addr);
+   // printf("start_addr = %p\n",start_addr);
+   // printf("end_addr = %p\n",end_addr);
 
     // If we find a map that start at the same page
     if(v->start_addr == start_addr){

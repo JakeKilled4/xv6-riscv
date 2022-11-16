@@ -132,6 +132,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->time = 0;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -187,6 +188,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
   p->tickets = 0;
   p->time = 0;
+  memset(p->vma,0,sizeof(p->vma));
    
 }
 
@@ -316,11 +318,34 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, 0, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
   }
+
+  // Copy all the vma and the map
+  struct vma * nv = np->vma;
+  for(struct vma * v = p->vma; v < &p->vma[MAXMAPS] && v->in_use; v++){
+    *nv = *v;
+    filedup(nv->f);
+ 
+    // Try to copy the page table
+    if(uvmcopy(p->pagetable, np->pagetable, v->start_addr, v->end_addr) < 0){ 
+       
+      // If there is an error unmap the mapped vmas
+      for(struct vma * aux = np->vma; aux <= nv; aux++){
+        uvmunmap(np->pagetable, aux->start_addr, (aux->end_addr - aux->start_addr) / PGSIZE, 0);
+        fileclose(aux->f);
+      }
+
+      freeproc(np);
+      release(&np->lock);
+      return -1;
+    }
+    nv++; 
+  }
+
   np->sz = p->sz;
 
   // Tickets from parent 
@@ -337,6 +362,7 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 

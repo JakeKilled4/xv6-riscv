@@ -169,7 +169,7 @@ pagetable_t     uvmcreate(void);
 void            uvmfirst(pagetable_t, uchar *, uint);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
-int             uvmcopy(pagetable_t, pagetable_t, uint64);
+int             uvmcopy(pagetable_t, pagetable_t, uint64, uint64);
 void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
@@ -178,8 +178,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64, uint64, uint64, struct vma*);
 int             copyin(pagetable_t, char *, uint64, uint64, uint64, uint64, struct vma*);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-int             pagefault(pagetable_t, uint64, uint64, uint64, struct vma*);
-void             free_pages(pagetable_t, uint64 , uint, struct file *, uint, uint);
+int             pagefault(pagetable_t, uint64, uint64, uint64, struct vma*, int);
+void            free_pages(pagetable_t, uint64 , uint, struct file *, uint, uint);
 
 // plic.c
 void            plicinit(void);
