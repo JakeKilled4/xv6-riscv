@@ -9,7 +9,6 @@
 
 
 // VMA is sorted by end_addr from bigger to lower value
-
 struct vma* mmap(struct vma* vma, struct file *f, uint len, int prot, int flags, int offset){
 
   struct vma * v;
@@ -60,7 +59,6 @@ struct vma* mmap(struct vma* vma, struct file *f, uint len, int prot, int flags,
     temp_start_addr = last_start_addr - len;
   }
 
-
   v->in_use = 1;
   v->start_addr = temp_start_addr;
   v->end_addr = v->start_addr + len;
@@ -73,16 +71,6 @@ struct vma* mmap(struct vma* vma, struct file *f, uint len, int prot, int flags,
   // read access
   if(prot & PROT_WRITE) prot |= PROT_READ;
   v->prot = prot;
-
-  /*  
-  //TODO DELETE (FOR TESTING)
-  struct vma* x;
-  printf("PRINT MAP\n");
-  for(x = vma; x < &vma[MAXMAPS] && x->in_use; x++){  
-    printf("start_addr %p\n", x->start_addr);
-    printf("end_addr %p\n\n", x->end_addr);
-  }
-  */
 
   // Increment references to the file
   filedup(f);
@@ -110,13 +98,9 @@ int munmap(struct vma* vma, pagetable_t pagetable, uint64 start_addr, uint len){
   uint64 end_addr;
   struct vma* v;
 
-  //printf("\n\nDesmapeando, len = %d\n",len);
-
   // Must be page aligned
   if(start_addr % PGSIZE != 0) return -1; 
   
-  //printf("start_addr alineado\n");
-
   // Specified in munmap documentation 
   if(len == 0) return -1;
 
@@ -125,12 +109,6 @@ int munmap(struct vma* vma, pagetable_t pagetable, uint64 start_addr, uint len){
   end_addr = start_addr + len;
 
   for(v = vma; v < &vma[MAXMAPS] && v->in_use;v++){
-
-   // printf("v->start_addr = %p\n",v->start_addr);
-   // printf("v->end_addr   = %p\n",v->end_addr);
-   // printf("v->end_addr - v->start_addr  = %d\n",v->end_addr - v->start_addr);
-   // printf("start_addr = %p\n",start_addr);
-   // printf("end_addr = %p\n",end_addr);
 
     // If we find a map that start at the same page
     if(v->start_addr == start_addr){

@@ -553,18 +553,6 @@ scheduler(void)
     srand(ticks);
     release(&tickslock);  
     
-    /* 
-    volatile int tickets2 = 0;
-    volatile int procesos = 0;
-    for(p = proc; p < &proc[NPROC]; p++) {
-    acquire(&p->lock);
-    if(p->state == RUNNABLE){
-    procesos++;
-    tickets2 += p->tickets;
-    }
-    release(&p->lock);
-    }*/
-
     // Generate random number
     acquire(&tickets_lock);
     int rand_number = rand() % total_tickets;

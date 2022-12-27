@@ -429,7 +429,7 @@ pagefault(pagetable_t pagetable, uint64 fault_addr, uint64 sz, uint64 stack, str
       return 0;
     }
     // This means the original page
-    // wasm't redable or writable
+    // wasn't redable or writable
     return -1;
   }
    

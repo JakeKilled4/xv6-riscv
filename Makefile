@@ -133,7 +133,6 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_zombie\
-	$U/_settickets\
 	$U/_lotterytest\
 	$U/_mmaptest\
 
